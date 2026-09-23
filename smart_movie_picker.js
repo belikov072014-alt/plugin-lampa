@@ -9,6 +9,9 @@
  *   3. Исключение из подборок уже просмотренного/оценённого и того, что показывали недавно
  *   4. Персональный рейтинг: вес жанров растёт от 👍 и падает от 👎, влияет на все режимы
  *   5. Новый режим ❤️ «Наш вечер» — подборка на основе персональных весов жанров
+ * v0.3 добавляет:
+ *   Три режима на основе TMDB "recommendations" для конкретных фильмов-ориентиров
+ *   (те же память/исключение просмотренного/скоринг, только источник кандидатов другой)
  *
  * Всё так же без своего сервера и без своего TMDB API-ключа — только
  * встроенные Lampa.Api / Lampa.Storage / Lampa.Select.
@@ -19,7 +22,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.0';
+    var VERSION = '0.3.0';
 
     if (window.smart_movie_picker_started === VERSION) return;
     window.smart_movie_picker_started = VERSION;
@@ -98,6 +101,18 @@
         {
             title: '🎲 Удиви меня',
             surprise: true
+        },
+        {
+            title: '🎬 Похоже на «Невидимый гость»',
+            endpoint: 'movie/411088/recommendations'
+        },
+        {
+            title: '🏝 Похоже на «Остров проклятых»',
+            endpoint: 'movie/11324/recommendations'
+        },
+        {
+            title: '⚖️ Похоже на «Адвокат дьявола»',
+            endpoint: 'movie/1813/recommendations'
         }
     ];
 
@@ -242,7 +257,13 @@
     // ---------------------------------------------------------------------
 
     function buildDiscoverParams(mode) {
-        var params = {};
+        var params = { endpoint: mode.endpoint || 'discover/movie' };
+
+        if (mode.endpoint) {
+            // Готовый TMDB-эндпоинт (например movie/{id}/recommendations) —
+            // discover-фильтры (genres/filter) он не понимает, не добавляем их.
+            return params;
+        }
 
         if (mode.personalized) {
             var weights = Lampa.Storage.get('smp_genre_weights', {});
@@ -282,7 +303,7 @@
     function fetchDiscoverPage(params, page, cb) {
         var p = { genres: params.genres, sort_by: params.sort_by, filter: params.filter, page: page };
 
-        Lampa.Api.sources.tmdb.get('discover/movie', p, function (json) {
+        Lampa.Api.sources.tmdb.get(params.endpoint, p, function (json) {
             cb((json && json.results) || []);
         }, function () { cb([]); });
     }
@@ -328,7 +349,7 @@
 
             var pool = Object.keys(unique)
                 .map(function (k) { return unique[k]; })
-                .filter(function (c) { return !isExcluded(c.id); });
+                .filter(function (c) { return !isExcluded(c.id) && (c.vote_average || 0) >= MIN_RATING; });
 
             if (!pool.length) {
                 Lampa.Noty.show('Не нашли новых вариантов — похоже, вы уже видели почти всё подходящее 🙂');
@@ -406,9 +427,7 @@
             '<rect x="2" y="5" width="20" height="14" rx="2.5" stroke="currentColor" stroke-width="2"/>' +
             '<path d="M10 9l5 3-5 3V9z" fill="currentColor"/></svg>';
 
-        var item = $('<li class="menu__item selector"><div class="menu__ico">' + icon + '</div><div class="menu__text">🍿 Что посмотреть?</div></li>');
-        item.on('hover:enter', safe(showMenu, 'menu'));
-        $('.menu .menu__list').eq(0).append(item);
+        Lampa.Menu.addButton(icon, '🍿 Что посмотреть?', safe(showMenu, 'menu'));
     }
 
     var start = safe(function () {
